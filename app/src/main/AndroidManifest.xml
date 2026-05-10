@@ -4,13 +4,14 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:allowBackup="true"
         android:label="@string/app_name"
         android:supportsRtl="true">
 
-        <!-- Main Activity — shows status and port -->
+        <!-- Main Activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -20,9 +21,9 @@
             </intent-filter>
         </activity>
 
-        <!-- The Ghost — Accessibility Service -->
+        <!-- EleftheriaPrime — Accessibility Service / Ghost Operator -->
         <service
-            android:name=".EleftheriaPrimeService"
+            android:name=".EleftheriaService"
             android:exported="true"
             android:label="EleftheriaPrime"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
@@ -33,6 +34,15 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <!-- Auto-start on boot -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>
