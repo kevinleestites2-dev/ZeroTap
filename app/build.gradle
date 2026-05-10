@@ -3,6 +3,7 @@ plugins {
 }
 
 android {
+    namespace "com.pantheon.zerotap"
     compileSdk 34
     defaultConfig {
         applicationId "com.pantheon.zerotap"
