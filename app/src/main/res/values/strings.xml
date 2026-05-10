@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">ZeroTap</string>
-    <string name="accessibility_description">ZeroTap — Ghost Operator Control Layer. Enables remote command execution for the Pantheon.</string>
+    <string name="app_name">EleftheriaPrime</string>
+    <string name="accessibility_description">EleftheriaPrime — Freedom Engine. Ghost Operator Control Layer for the Pantheon. No Termux. No limits.</string>
 </resources>
