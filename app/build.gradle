@@ -3,10 +3,10 @@ plugins {
 }
 
 android {
-    namespace "com.pantheon.zerotap"
+    namespace "com.pantheon.eleftheria"
     compileSdk 34
     defaultConfig {
-        applicationId "com.pantheon.zerotap"
+        applicationId "com.pantheon.eleftheria"
         minSdk 26
         targetSdk 34
         versionCode 1
