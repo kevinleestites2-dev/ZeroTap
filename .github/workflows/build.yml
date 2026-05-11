@@ -39,9 +39,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: latest
-          name: EleftheriaPrime Latest Build
+          tag_name: v1.1
+          name: EleftheriaPrime v1.1 — open_url action
           files: app/build/outputs/apk/debug/app-debug.apk
-          body: "EleftheriaPrime Freedom Engine. Ghost Operator Control Layer for the Pantheon."
+          body: "ZeroTap v1.1 — Added open_url action for launching YouTube and any URL via Android Intent."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
