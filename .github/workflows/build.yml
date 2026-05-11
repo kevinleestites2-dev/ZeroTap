@@ -18,11 +18,16 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Setup Gradle 8.9
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.9'
+
       - name: Grant gradlew execute permission
         run: chmod +x gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -35,11 +40,8 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           tag_name: latest
-          name: EleftheriaPrime — Latest Build
+          name: EleftheriaPrime Latest Build
           files: app/build/outputs/apk/debug/app-debug.apk
-          body: |
-            ⚡ EleftheriaPrime — Freedom Engine
-            Ghost Operator Control Layer for the Pantheon.
-            No Termux. No limits. Install and enable Accessibility Service.
+          body: "EleftheriaPrime Freedom Engine. Ghost Operator Control Layer for the Pantheon."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
