@@ -3,6 +3,8 @@ package com.pantheon.eleftheria;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
 import android.graphics.Path;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -346,6 +348,16 @@ public class EleftheriaService extends AccessibilityService {
             sb.append(indent).append("[DESC] ").append(desc).append("\n");
         for (int i = 0; i < node.getChildCount(); i++) {
             dumpNode(node.getChild(i), sb, depth + 1);
+        }
+    }
+
+    private void openUrl(String url) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getApplicationContext().startActivity(intent);
+        } catch (Exception e) {
+            Log.e(TAG, "openUrl error: " + e.getMessage());
         }
     }
 
