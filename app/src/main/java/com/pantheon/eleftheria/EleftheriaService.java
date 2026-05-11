@@ -89,8 +89,13 @@ public class EleftheriaService extends AccessibilityService {
                         String body = sb.toString().trim();
                         if (!body.isEmpty() && !body.equals("{}") && !body.equals("null")) {
                             Log.d(TAG, "Command received: " + body);
+                            String commandId = null;
+                            try {
+                                JSONObject cmdObj = new JSONObject(body);
+                                commandId = cmdObj.optString("_id", null);
+                            } catch (Exception ignored) {}
                             String result = executeCommand(body);
-                            postResult(result);
+                            postResult(commandId, result);
                         }
                     }
                     conn.disconnect();
@@ -109,7 +114,7 @@ public class EleftheriaService extends AccessibilityService {
         relayPollThread.start();
     }
 
-    private void postResult(String result) {
+    private void postResult(String id, String result) {
         try {
             URL url = new URL(RELAY_URL + "/result");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -119,7 +124,8 @@ public class EleftheriaService extends AccessibilityService {
             conn.setDoOutput(true);
             conn.setConnectTimeout(5000);
 
-            String payload = "{\"result\":" + JSONObject.quote(result) + "}";
+            String idPart = (id != null) ? ",\"_id\":" + JSONObject.quote(id) : "";
+            String payload = "{\"result\":" + JSONObject.quote(result) + idPart + "}";
             OutputStreamWriter writer = new OutputStreamWriter(conn.getOutputStream());
             writer.write(payload);
             writer.flush();
@@ -360,3 +366,4 @@ public class EleftheriaService extends AccessibilityService {
         Log.d(TAG, "EleftheriaPrime destroyed");
     }
 }
+
