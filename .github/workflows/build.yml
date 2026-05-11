@@ -29,19 +29,22 @@ jobs:
       - name: Build Debug APK
         run: gradle assembleDebug
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: EleftheriaPrime
           path: app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Create Release
+      - name: Create Release v1.2
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v1.1
-          name: EleftheriaPrime v1.1 — open_url action
+          tag_name: v1.2
+          name: EleftheriaPrime v1.2 — Termux-free Ghost Operator
           files: app/build/outputs/apk/debug/app-debug.apk
-          body: "ZeroTap v1.1 — Added open_url action for launching YouTube and any URL via Android Intent."
+          body: |
+            ZeroTap v1.2 — Railway relay poller baked directly into the APK.
+            No Termux needed. Install once, Ghost Operator runs forever in the background.
+            Supports: tap, swipe, type, back, home, recents, screen, open_url, shell, ping, info.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
