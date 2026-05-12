@@ -35,21 +35,34 @@ jobs:
           name: EleftheriaPrime
           path: app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Delete old v1.3 tag if exists
+      - name: Delete old v2.0 tag if exists
         run: |
           curl -s -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/git/refs/tags/v1.3 || true
+            https://api.github.com/repos/${{ github.repository }}/git/refs/tags/v2.0 || true
 
-      - name: Create Release v1.3
+      - name: Create Release v2.0
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v1.3
-          name: EleftheriaPrime v1.3 — open_url confirmed
+          tag_name: v2.0
+          name: EleftheriaPrime v2.0 — WebSocket Ghost Operator
           files: app/build/outputs/apk/debug/app-debug.apk
           body: |
-            ZeroTap v1.3 — open_url fully baked in.
-            Supports: tap, swipe, type, back, home, recents, screen, open_url, shell, ping, info.
-            Railway relay baked in. No Termux needed.
+            ## EleftheriaPrime v2.0 — WebSocket Ghost Operator
+
+            **The upgrade:** No more HTTP polling every 2 seconds.
+            The APK now maintains a persistent WebSocket to Nexus Relay.
+            Commands are delivered instantly. Battery usage is minimal.
+            No Termux. No tunnels. Just the APK + Railway.
+
+            ### Commands supported:
+            tap, swipe, type, back, home, recents, screen, open_url,
+            launch, click_text, scroll_up, scroll_down, shell, ping, info
+
+            ### Architecture:
+            - APK connects OUT to wss://nexus-relay-production.up.railway.app/ws
+            - Auto-reconnects on disconnect (3s retry)
+            - OkHttp WebSocket with 20s ping interval (keep-alive)
+            - Foreground Accessibility Service (Android won't kill it)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
