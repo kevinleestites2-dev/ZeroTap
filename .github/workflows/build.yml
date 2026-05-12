@@ -35,8 +35,16 @@ jobs:
           name: EleftheriaPrime
           path: app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Delete old v3.0 tag if exists
+      - name: Delete old v3.0 release and tag if exists
         run: |
+          RELEASE_ID=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/releases/tags/v3.0 \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || true)
+          if [ -n "$RELEASE_ID" ] && [ "$RELEASE_ID" != "None" ]; then
+            curl -s -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID || true
+            echo "Deleted release ID: $RELEASE_ID"
+          fi
           curl -s -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             https://api.github.com/repos/${{ github.repository }}/git/refs/tags/v3.0 || true
 
@@ -62,7 +70,7 @@ jobs:
             - **clipboard_set** — write text to clipboard
             - **volume_up / volume_down** — adjust media volume
             - **brightness** — set screen brightness (0-255)
-            - **drag** — long-press drag gesture (x1,y1 → x2,y2)
+            - **drag** — long-press drag gesture (x1,y1 to x2,y2)
             - **lock** — lock the screen
             - **notifications** — pull down notification shade
 
