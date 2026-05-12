@@ -15,184 +15,124 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
+
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.WebSocket;
+import okhttp3.WebSocketListener;
+import okio.ByteString;
 
 public class EleftheriaPrimeService extends AccessibilityService {
 
-    private static final String TAG     = "EleftheriaPrime";
-    private static final int    PORT    = 7474;
-    private static final String RELAY   = "https://nexus-relay-production.up.railway.app";
-    private static final String SECRET  = "pantheon_prime";
-    private static final int    POLL_MS = 2000;
-    private static final String VERSION = "1.2";
+    private static final String TAG      = "EleftheriaPrime";
+    private static final String RELAY_WS = "wss://nexus-relay-production.up.railway.app/ws";
+    private static final String SECRET   = "pantheon_prime";
+    private static final String VERSION  = "2.0.0";
 
-    private ServerSocket serverSocket;
-    private Thread       serverThread;
-    private Thread       relayThread;
-    private volatile boolean relayRunning = false;
+    private OkHttpClient httpClient;
+    private WebSocket webSocket;
+    private volatile boolean running = false;
+    private final Handler reconnectHandler = new Handler(Looper.getMainLooper());
 
     private static EleftheriaPrimeService instance;
+    public static EleftheriaPrimeService getInstance() { return instance; }
 
     // ─── LIFECYCLE ───────────────────────────────────────────────
 
     @Override
     public void onServiceConnected() {
         instance = this;
+        running = true;
         Log.d(TAG, "EleftheriaPrime v" + VERSION + " — Ghost Operator ACTIVE");
-        startHttpServer();
-        startRelayPoller();
+        httpClient = new OkHttpClient.Builder()
+            .pingInterval(20, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.SECONDS)
+            .build();
+        connectWebSocket();
     }
 
-    @Override
-    public void onAccessibilityEvent(AccessibilityEvent event) {}
-
-    @Override
-    public void onInterrupt() {
-        Log.d(TAG, "EleftheriaPrime interrupted");
-    }
+    @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
+    @Override public void onInterrupt() { Log.d(TAG, "Interrupted"); }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
-        relayRunning = false;
-        try { if (serverSocket != null) serverSocket.close(); } catch (Exception ignored) {}
-        Log.d(TAG, "EleftheriaPrime destroyed");
+        running = false;
+        if (webSocket != null) webSocket.cancel();
+        Log.d(TAG, "Destroyed");
     }
 
-    // ─── LOCAL HTTP SERVER (port 7474) ───────────────────────────
+    // ─── WEBSOCKET ───────────────────────────────────────────────
 
-    private void startHttpServer() {
-        serverThread = new Thread(() -> {
-            try {
-                serverSocket = new ServerSocket(PORT);
-                Log.d(TAG, "Local HTTP server on port " + PORT);
-                while (!serverSocket.isClosed()) {
-                    Socket client = serverSocket.accept();
-                    new Thread(() -> handleLocalClient(client)).start();
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Server error: " + e.getMessage());
+    private void connectWebSocket() {
+        if (!running) return;
+        Log.d(TAG, "Connecting WS: " + RELAY_WS);
+        Request req = new Request.Builder()
+            .url(RELAY_WS)
+            .header("X-Secret", SECRET)
+            .header("X-Agent", "EleftheriaPrime")
+            .header("X-Version", VERSION)
+            .build();
+
+        webSocket = httpClient.newWebSocket(req, new WebSocketListener() {
+            @Override
+            public void onOpen(WebSocket ws, Response response) {
+                Log.d(TAG, "WS OPEN");
+                ws.send("{\"type\":\"register\",\"agent\":\"EleftheriaPrime\",\"version\":\"" + VERSION + "\"}");
             }
-        });
-        serverThread.setDaemon(true);
-        serverThread.start();
-    }
 
-    private void handleLocalClient(Socket client) {
-        try {
-            BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
-            String line;
-            int contentLength = 0;
-            StringBuilder headers = new StringBuilder();
-            while ((line = in.readLine()) != null && !line.isEmpty()) {
-                headers.append(line).append("\n");
-                if (line.toLowerCase().startsWith("content-length:"))
-                    contentLength = Integer.parseInt(line.split(":")[1].trim());
-            }
-            StringBuilder body = new StringBuilder();
-            if (contentLength > 0) {
-                char[] buf = new char[contentLength];
-                in.read(buf, 0, contentLength);
-                body.append(buf);
-            }
-            String response = processCommand(headers.toString(), body.toString());
-            OutputStream out = client.getOutputStream();
-            String http = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
-                    "Access-Control-Allow-Origin: *\r\nContent-Length: " +
-                    response.getBytes(StandardCharsets.UTF_8).length + "\r\n\r\n" + response;
-            out.write(http.getBytes(StandardCharsets.UTF_8));
-            out.flush();
-            client.close();
-        } catch (Exception e) {
-            Log.e(TAG, "Client error: " + e.getMessage());
-        }
-    }
-
-    // ─── RAILWAY RELAY POLLER (NO TERMUX NEEDED) ─────────────────
-
-    private void startRelayPoller() {
-        relayRunning = true;
-        relayThread = new Thread(() -> {
-            Log.d(TAG, "Relay poller started -> " + RELAY);
-            int errors = 0;
-            while (relayRunning) {
-                try {
-                    JSONObject cmd = relayGet("/poll");
-                    if (cmd == null || cmd.optString("status").equals("empty") || !cmd.has("_id")) {
-                        Thread.sleep(POLL_MS);
-                        errors = 0;
-                        continue;
+            @Override
+            public void onMessage(WebSocket ws, String text) {
+                new Thread(() -> {
+                    try {
+                        JSONObject cmd = new JSONObject(text);
+                        String id = cmd.optString("_id", "");
+                        String result = processCommand(cmd);
+                        JSONObject res = new JSONObject(result);
+                        if (!id.isEmpty()) res.put("_id", id);
+                        ws.send(res.toString());
+                    } catch (Exception e) {
+                        Log.e(TAG, "Msg error: " + e.getMessage());
                     }
-                    errors = 0;
-                    String id = cmd.getString("_id");
-                    Log.d(TAG, "Relay cmd [" + id + "]: " + cmd.toString().substring(0, Math.min(80, cmd.toString().length())));
-                    String result = processRelayCommand(cmd);
-                    JSONObject resultObj = new JSONObject(result);
-                    resultObj.put("_id", id);
-                    relayPost("/result", resultObj.toString());
-                    Log.d(TAG, "Result posted for [" + id + "]");
-                } catch (InterruptedException ie) {
-                    break;
-                } catch (Exception e) {
-                    errors++;
-                    long wait = Math.min(30000L, (long)(Math.pow(2, errors)) * 1000L);
-                    Log.e(TAG, "Relay error: " + e.getMessage() + " retry in " + wait + "ms");
-                    try { Thread.sleep(wait); } catch (InterruptedException ie) { break; }
-                }
+                }).start();
             }
-            Log.d(TAG, "Relay poller stopped");
+
+            @Override public void onMessage(WebSocket ws, ByteString bytes) {}
+
+            @Override
+            public void onFailure(WebSocket ws, Throwable t, Response response) {
+                Log.e(TAG, "WS FAIL: " + t.getMessage());
+                scheduleReconnect(5000);
+            }
+
+            @Override
+            public void onClosed(WebSocket ws, int code, String reason) {
+                Log.d(TAG, "WS CLOSED: " + reason);
+                scheduleReconnect(3000);
+            }
         });
-        relayThread.setDaemon(true);
-        relayThread.start();
     }
 
-    private JSONObject relayGet(String path) throws Exception {
-        URL url = new URL(RELAY + path);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("GET");
-        conn.setRequestProperty("X-Secret", SECRET);
-        conn.setConnectTimeout(10000);
-        conn.setReadTimeout(10000);
-        if (conn.getResponseCode() != 200) return null;
-        BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-        StringBuilder sb = new StringBuilder();
-        String line;
-        while ((line = br.readLine()) != null) sb.append(line);
-        conn.disconnect();
-        return new JSONObject(sb.toString());
+    private void scheduleReconnect(long delayMs) {
+        if (!running) return;
+        reconnectHandler.postDelayed(() -> { if (running) connectWebSocket(); }, delayMs);
     }
 
-    private void relayPost(String path, String json) throws Exception {
-        URL url = new URL(RELAY + path);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("X-Secret", SECRET);
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setDoOutput(true);
-        conn.setConnectTimeout(10000);
-        conn.setReadTimeout(10000);
-        conn.getOutputStream().write(json.getBytes(StandardCharsets.UTF_8));
-        conn.getInputStream().close();
-        conn.disconnect();
-    }
+    // ─── COMMAND PROCESSOR ───────────────────────────────────────
 
-    // ─── UNIFIED COMMAND PROCESSOR ───────────────────────────────
-
-    private String processRelayCommand(JSONObject cmd) {
+    private String processCommand(JSONObject cmd) {
         try {
             String action = cmd.optString("action", cmd.optString("type", ""));
             switch (action) {
+
                 case "ping":
-                    return "{\"status\":\"ok\",\"output\":\"pong\",\"agent\":\"EleftheriaPrime\",\"version\":\"" + VERSION + "\"}";
+                    return "{\"status\":\"ok\",\"agent\":\"EleftheriaPrime\",\"version\":\"" + VERSION + "\",\"transport\":\"websocket\"}";
 
                 case "tap": {
-                    int x = cmd.getInt("x");
-                    int y = cmd.getInt("y");
+                    int x = cmd.getInt("x"), y = cmd.getInt("y");
                     performTap(x, y);
                     return "{\"status\":\"ok\",\"action\":\"tap\",\"x\":" + x + ",\"y\":" + y + "}";
                 }
@@ -206,8 +146,7 @@ public class EleftheriaPrimeService extends AccessibilityService {
                 }
 
                 case "type": {
-                    String text = cmd.getString("text");
-                    typeText(text);
+                    typeText(cmd.getString("text"));
                     return "{\"status\":\"ok\",\"action\":\"type\"}";
                 }
 
@@ -225,7 +164,7 @@ public class EleftheriaPrimeService extends AccessibilityService {
 
                 case "screen": {
                     String screen = dumpScreen();
-                    return "{\"status\":\"ok\",\"screen\":\"" + screen.replace("\"", "'") + "\"}";
+                    return "{\"status\":\"ok\",\"screen\":\"" + screen.replace("\"","'").replace("\n","\\n") + "\"}";
                 }
 
                 case "open_url": {
@@ -233,6 +172,26 @@ public class EleftheriaPrimeService extends AccessibilityService {
                     openUrl(urlStr);
                     return "{\"status\":\"ok\",\"action\":\"open_url\",\"url\":\"" + urlStr + "\"}";
                 }
+
+                case "launch": {
+                    String pkg = cmd.getString("package");
+                    launchApp(pkg);
+                    return "{\"status\":\"ok\",\"action\":\"launch\",\"package\":\"" + pkg + "\"}";
+                }
+
+                case "click_text": {
+                    String text = cmd.getString("text");
+                    boolean found = clickNodeByText(text);
+                    return "{\"status\":\"" + (found ? "ok" : "not_found") + "\",\"action\":\"click_text\",\"text\":\"" + text + "\"}";
+                }
+
+                case "scroll_down":
+                    performSwipe(540, 1400, 540, 400, 400);
+                    return "{\"status\":\"ok\",\"action\":\"scroll_down\"}";
+
+                case "scroll_up":
+                    performSwipe(540, 400, 540, 1400, 400);
+                    return "{\"status\":\"ok\",\"action\":\"scroll_up\"}";
 
                 case "shell": {
                     String shellCmd = cmd.optString("cmd", "echo no_cmd");
@@ -243,14 +202,14 @@ public class EleftheriaPrimeService extends AccessibilityService {
                         String line;
                         while ((line = br.readLine()) != null) sb.append(line).append("\\n");
                         p.waitFor();
-                        return "{\"status\":\"ok\",\"output\":\"" + sb.toString().trim().replace("\"", "'") + "\"}";
+                        return "{\"status\":\"ok\",\"output\":\"" + sb.toString().trim().replace("\"","'") + "\"}";
                     } catch (Exception e) {
                         return "{\"status\":\"error\",\"output\":\"" + e.getMessage() + "\"}";
                     }
                 }
 
                 case "info":
-                    return "{\"status\":\"ok\",\"output\":\"EleftheriaPrime v" + VERSION + " | Ghost Operator ACTIVE | Termux-free\"}";
+                    return "{\"status\":\"ok\",\"version\":\"" + VERSION + "\",\"transport\":\"websocket\"}";
 
                 default:
                     return "{\"status\":\"unknown_action\",\"action\":\"" + action + "\"}";
@@ -260,33 +219,7 @@ public class EleftheriaPrimeService extends AccessibilityService {
         }
     }
 
-    private String processCommand(String headers, String body) {
-        try {
-            String path = "/";
-            for (String line : headers.split("\n")) {
-                if (line.startsWith("GET") || line.startsWith("POST")) {
-                    path = line.split(" ")[1];
-                    break;
-                }
-            }
-            JSONObject cmd = new JSONObject();
-            if (!body.isEmpty()) {
-                JSONObject bodyJson = new JSONObject(body);
-                java.util.Iterator<String> keys = bodyJson.keys();
-                while (keys.hasNext()) {
-                    String k = keys.next();
-                    cmd.put(k, bodyJson.get(k));
-                }
-            }
-            String action = path.replaceFirst("/", "").split("\\?")[0];
-            cmd.put("action", action);
-            return processRelayCommand(cmd);
-        } catch (Exception e) {
-            return "{\"status\":\"error\",\"message\":\"" + e.getMessage() + "\"}";
-        }
-    }
-
-    // ─── OPEN URL ────────────────────────────────────────────────
+    // ─── ACTIONS ─────────────────────────────────────────────────
 
     private void openUrl(String urlStr) {
         new Handler(Looper.getMainLooper()).post(() -> {
@@ -294,21 +227,42 @@ public class EleftheriaPrimeService extends AccessibilityService {
                 Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(urlStr));
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 getApplicationContext().startActivity(intent);
-                Log.d(TAG, "Opened URL: " + urlStr);
-            } catch (Exception e) {
-                Log.e(TAG, "open_url error: " + e.getMessage());
-            }
+            } catch (Exception e) { Log.e(TAG, "open_url: " + e.getMessage()); }
         });
     }
 
-    // ─── GESTURES ────────────────────────────────────────────────
+    private void launchApp(String packageName) {
+        new Handler(Looper.getMainLooper()).post(() -> {
+            try {
+                Intent intent = getPackageManager().getLaunchIntentForPackage(packageName);
+                if (intent != null) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                }
+            } catch (Exception e) { Log.e(TAG, "launch: " + e.getMessage()); }
+        });
+    }
+
+    private boolean clickNodeByText(String text) {
+        try {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (root == null) return false;
+            java.util.List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(text);
+            if (nodes != null && !nodes.isEmpty()) {
+                nodes.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                root.recycle();
+                return true;
+            }
+            root.recycle();
+        } catch (Exception e) { Log.e(TAG, "click_text: " + e.getMessage()); }
+        return false;
+    }
 
     private void performTap(int x, int y) {
         Path p = new Path();
         p.moveTo(x, y);
         GestureDescription.StrokeDescription s = new GestureDescription.StrokeDescription(p, 0, 50);
         dispatchGesture(new GestureDescription.Builder().addStroke(s).build(), null, null);
-        Log.d(TAG, "TAP: " + x + "," + y);
     }
 
     private void performSwipe(int x1, int y1, int x2, int y2, int duration) {
@@ -317,22 +271,19 @@ public class EleftheriaPrimeService extends AccessibilityService {
         p.lineTo(x2, y2);
         GestureDescription.StrokeDescription s = new GestureDescription.StrokeDescription(p, 0, duration);
         dispatchGesture(new GestureDescription.Builder().addStroke(s).build(), null, null);
-        Log.d(TAG, "SWIPE: " + x1 + "," + y1 + " -> " + x2 + "," + y2);
     }
 
     private void typeText(String text) {
         AccessibilityNodeInfo root = getRootInActiveWindow();
-        if (root != null) {
-            AccessibilityNodeInfo focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
-            if (focused != null) {
-                android.os.Bundle args = new android.os.Bundle();
-                args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
-                focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
-                focused.recycle();
-            }
-            root.recycle();
+        if (root == null) return;
+        AccessibilityNodeInfo focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+        if (focused != null) {
+            android.os.Bundle args = new android.os.Bundle();
+            args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
+            focused.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+            focused.recycle();
         }
-        Log.d(TAG, "TYPE: " + text);
+        root.recycle();
     }
 
     private String dumpScreen() {
@@ -351,11 +302,11 @@ public class EleftheriaPrimeService extends AccessibilityService {
 
     private void dumpNode(AccessibilityNodeInfo node, StringBuilder sb, int depth) {
         if (node == null) return;
-        String indent = new String(new char[depth * 2]).replace('\0', ' ');
+        String indent = "  ".repeat(depth);
         CharSequence text = node.getText();
         CharSequence desc = node.getContentDescription();
-        if (text != null && text.length() > 0) sb.append(indent).append("[TEXT] ").append(text).append("\n");
-        if (desc != null && desc.length() > 0) sb.append(indent).append("[DESC] ").append(desc).append("\n");
+        if (text != null && text.length() > 0) sb.append(indent).append("[T] ").append(text).append("\n");
+        if (desc != null && desc.length() > 0) sb.append(indent).append("[D] ").append(desc).append("\n");
         for (int i = 0; i < node.getChildCount(); i++) dumpNode(node.getChild(i), sb, depth + 1);
     }
 }
