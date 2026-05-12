@@ -35,34 +35,47 @@ jobs:
           name: EleftheriaPrime
           path: app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Delete old v2.0 tag if exists
+      - name: Delete old v3.0 tag if exists
         run: |
           curl -s -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/git/refs/tags/v2.0 || true
+            https://api.github.com/repos/${{ github.repository }}/git/refs/tags/v3.0 || true
 
-      - name: Create Release v2.0
+      - name: Create Release v3.0
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v2.0
-          name: EleftheriaPrime v2.0 — WebSocket Ghost Operator
+          tag_name: v3.0
+          name: EleftheriaPrime v3.0 — Full Capability Absorption
           files: app/build/outputs/apk/debug/app-debug.apk
           body: |
-            ## EleftheriaPrime v2.0 — WebSocket Ghost Operator
+            ## EleftheriaPrime v3.0 — Full Capability Absorption
 
-            **The upgrade:** No more HTTP polling every 2 seconds.
-            The APK now maintains a persistent WebSocket to Nexus Relay.
-            Commands are delivered instantly. Battery usage is minimal.
-            No Termux. No tunnels. Just the APK + Railway.
+            The Hands are fully operational. Absorbed the best capabilities
+            from android-remote-control-mcp and integrated them natively
+            into the Pantheon relay architecture.
 
-            ### Commands supported:
-            tap, swipe, type, back, home, recents, screen, open_url,
-            launch, click_text, scroll_up, scroll_down, shell, ping, info
+            ### New Commands (v3.0):
+            - **screenshot** — captures real pixel screenshot via AccessibilityService (Android 11+)
+            - **screenshot?annotate=true** — screenshot with red bounding boxes + node IDs overlaid
+            - **screen?annotate=true** — accessibility tree dump with node IDs and bounds
+            - **clipboard_get** — read current clipboard content
+            - **clipboard_set** — write text to clipboard
+            - **volume_up / volume_down** — adjust media volume
+            - **brightness** — set screen brightness (0-255)
+            - **drag** — long-press drag gesture (x1,y1 → x2,y2)
+            - **lock** — lock the screen
+            - **notifications** — pull down notification shade
+
+            ### All Commands:
+            ping, info, tap, swipe, drag, type, back, home, recents,
+            notifications, lock, screen, screenshot, launch, open_url,
+            click_text, scroll_up, scroll_down, shell,
+            clipboard_get, clipboard_set, volume_up, volume_down, brightness
 
             ### Architecture:
-            - APK connects OUT to wss://nexus-relay-production.up.railway.app/ws
+            - Persistent WebSocket to wss://nexus-relay-production.up.railway.app/ws
             - Auto-reconnects on disconnect (3s retry)
-            - OkHttp WebSocket with 20s ping interval (keep-alive)
-            - Foreground Accessibility Service (Android won't kill it)
+            - minSdk 30 (Android 11) required for screenshot API
+            - Accessibility Service — Red Magic process killer cannot touch it
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
